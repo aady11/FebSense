@@ -5,6 +5,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import shap
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 # -------------------------------------------------------
 # 1. APP CONFIGURATION
@@ -119,7 +120,7 @@ with st.sidebar:
     analyze_button = st.button("Analyze Wafer", type="primary", use_container_width=True)
 
 # -------------------------------------------------------
-# 4. MAIN DASHBOARD (TABS LAYOUT)
+# 4. MAIN DASHBOARD
 # -------------------------------------------------------
 if analyze_button:
     input_data = {
@@ -136,35 +137,88 @@ if analyze_button:
     threshold_val = threshold / 100.0
     prediction = "DEFECTIVE" if prob >= threshold_val else "GOOD"
     
+    if prob >= 0.5: risk_label = "HIGH RISK"
+    elif prob >= threshold_val: risk_label = "ELEVATED RISK"
+    else: risk_label = "LOW RISK"
+
+    # SHAP Calculation (done once to use across tabs)
+    explainer = shap.TreeExplainer(model)
+    shap_values_raw = explainer.shap_values(input_df)
+    if isinstance(shap_values_raw, list):
+        shap_vals = shap_values_raw[1][0]
+    else:
+        shap_vals = shap_values_raw[0, :, 1]
+    
+    active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
+    active_features.sort(key=lambda x: abs(x[1]), reverse=True)
+
     # Create Tabs
     tab1, tab2, tab3 = st.tabs(["📊 Verdict & Risk", "🔬 Root Cause Analysis", "💰 Business Impact & Action"])
 
     with tab1:
         st.header("Wafer Verdict")
         
-        if prob >= 0.5: risk_label = "HIGH RISK"
-        elif prob >= threshold_val: risk_label = "ELEVATED RISK"
-        else: risk_label = "LOW RISK"
+        col1, col2 = st.columns([1.5, 1])
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Defect Probability", f"{prob*100:.1f}%")
-        col2.metric("Status", prediction)
-        col3.metric("Risk Level", risk_label)
-        
-        st.write("#### Risk Gauge")
-        st.progress(prob, text=f"Defect Probability: {prob*100:.1f}%")
+        with col1:
+            # Plotly Gauge Chart
+            if prob >= 0.5: gauge_color = "red"
+            elif prob >= threshold_val: gauge_color = "orange"
+            else: gauge_color = "green"
+            
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = prob * 100,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': f"Status: {risk_label}", 'font': {'size': 24}},
+                gauge = {
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'bar': {'color': gauge_color, 'thickness': 0.4},
+                    'bgcolor': "white",
+                    'borderwidth': 2,
+                    'bordercolor': "gray",
+                    'steps': [
+                        {'range': [0, 30], 'color': 'rgba(46, 204, 113, 0.2)'},
+                        {'range': [30, 60], 'color': 'rgba(243, 156, 18, 0.2)'},
+                        {'range': [60, 100], 'color': 'rgba(231, 76, 60, 0.2)'}],
+                    'threshold': {
+                        'line': {'color': "black", 'width': 4},
+                        'thickness': 0.75,
+                        'value': threshold_val * 100}
+                }
+            ))
+            fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=60, b=20))
+            st.plotly_chart(fig_gauge, use_container_width=True)
+            
+        with col2:
+            st.markdown("#### Summary")
+            st.metric("Process Step", process_step)
+            st.metric("Prediction", prediction)
+            st.metric("Risk Threshold", f"{threshold}%")
+            st.info(f"The black line on the gauge shows your decision threshold. The model is {prob*100:.1f}% confident this wafer is defective.")
 
     with tab2:
         st.header("Root Cause Analysis")
         
-        explainer = shap.TreeExplainer(model)
-        shap_values_raw = explainer.shap_values(input_df)
+        # Sensor Status Table
+        st.subheader("Sensor Status Table")
+        sensor_table_data = []
+        for f, s, v in active_features:
+            safe_min, safe_max = normal_ranges[process_step][f]
+            status = "🟢 Normal" if safe_min <= v <= safe_max else "🔴 Out of Spec"
+            sensor_table_data.append({
+                'Sensor': f, 'Reading': f"{v:.2f}", 
+                'Safe Range': f"{safe_min} - {safe_max}", 
+                'Status': status, 'SHAP Impact': f"{s:+.4f}"
+            })
         
-        if isinstance(shap_values_raw, list):
-            shap_vals = shap_values_raw[1][0]
-        else:
-            shap_vals = shap_values_raw[0, :, 1]
+        df_sensors = pd.DataFrame(sensor_table_data)
+        st.dataframe(df_sensors, use_container_width=True, hide_index=True)
         
+        st.divider()
+        
+        # SHAP Chart
+        st.subheader("Feature Impact (SHAP)")
         feature_importance = pd.DataFrame({'Feature': feature_names, 'SHAP Value': shap_vals})
         feature_importance = feature_importance[feature_importance['SHAP Value'] != 0]
         feature_importance = feature_importance[~feature_importance['Feature'].str.startswith('process_step_')]
@@ -179,10 +233,6 @@ if analyze_button:
         
         st.divider()
         st.subheader("Plain-English Explanation")
-        
-        active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
-        active_features.sort(key=lambda x: abs(x[1]), reverse=True)
-        
         if active_features:
             top_feature, top_shap, top_val = active_features[0]
             safe_min, safe_max = normal_ranges[process_step][top_feature]
@@ -201,8 +251,6 @@ if analyze_button:
             else:
                 st.success("All sensors are operating within normal parameters.")
                 st.info("Risk is likely driven by subtle multi-sensor interactions. Continue monitoring, but no immediate action required.")
-        else:
-            st.info("No active sensors found for this step.")
 
     with tab3:
         st.header("Business Impact & Action Plan")
@@ -216,14 +264,14 @@ if analyze_button:
         inspection_inr = inspection_usd * USD_TO_INR
         
         st.write("#### Financial Context (Per Wafer)")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Scrap Cost (If Missed)", f"${scrap_usd:,}", delta=f"Rs. {scrap_inr:,}", delta_color="inverse")
         with col2:
             st.metric("Savings (If Caught Early)", f"${early_stop_usd:,}", delta=f"Rs. {early_stop_inr:,}", delta_color="normal")
+        with col3:
+            st.metric("Inspection Cost (False Alarm)", f"${inspection_usd:,}", delta=f"Rs. {inspection_inr:,}", delta_color="off")
             
-        st.metric("False Alarm Cost (Inspection)", f"${inspection_usd:,}", delta=f"Rs. {inspection_inr:,}", delta_color="off")
-        
         st.divider()
         st.write("#### Actionable Recommendation")
         
