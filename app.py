@@ -6,11 +6,17 @@ from sklearn.model_selection import train_test_split
 import shap
 import matplotlib.pyplot as plt
 
+# -------------------------------------------------------
+# 1. APP CONFIGURATION
+# -------------------------------------------------------
 st.set_page_config(page_title="FabSense", page_icon="🏭", layout="wide")
 
 st.title("FabSense - AI Co-Pilot for Yield Loss")
 st.markdown("Predict defect risk, explain why, and estimate cost impact in USD and INR.")
 
+# -------------------------------------------------------
+# 2. DATA GENERATION & MODEL TRAINING
+# -------------------------------------------------------
 @st.cache_data
 def generate_data():
     np.random.seed(42)
@@ -41,7 +47,7 @@ def generate_data():
             etch_rate = 0
             voltage = np.random.normal(50, 3)
             current = np.random.normal(2.0, 0.2)
-        
+
         defect_prob = 0.05
         if step == 'Etch':
             if etch_rate > 590 or etch_rate < 510: defect_prob += 0.45
@@ -59,7 +65,7 @@ def generate_data():
             if voltage > 55 or voltage < 45: defect_prob += 0.35
             if current > 2.3 or current < 1.7: defect_prob += 0.30
             if pressure > 1.08 or pressure < 0.92: defect_prob += 0.25
-        
+
         defect_prob = min(defect_prob, 0.95)
         defect_label = 1 if np.random.random() < defect_prob else 0
         data.append({
@@ -77,23 +83,19 @@ def generate_data():
 @st.cache_resource
 def train_model():
     df = generate_data()
-    y = df['defect_label']
-    df_features = df.drop('defect_label', axis=1)
-    X = pd.get_dummies(df_features, columns=['process_step'], drop_first=False)
-    feature_names = X.columns.tolist()
+    df_encoded = pd.get_dummies(df, columns=['process_step'], drop_first=False)
+    X = df_encoded.drop('defect_label', axis=1)
+    y = df_encoded['defect_label']
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     model = RandomForestClassifier(n_estimators=100, max_depth=15, class_weight='balanced', random_state=42)
     model.fit(X_train, y_train)
-    return model, feature_names
+    return model, X_train.columns
 
 model, feature_names = train_model()
 
-normal_ranges = {
-    'Etch': {'temperature': (70, 80), 'pressure': (4.5, 5.5), 'gas_flow': (105, 135), 'etch_rate': (510, 590), 'voltage': (275, 325), 'current': (5.3, 6.7)},
-    'Deposition': {'temperature': (425, 475), 'pressure': (2.2, 2.8), 'gas_flow': (180, 220)},
-    'Lithography': {'temperature': (21, 23), 'pressure': (0.92, 1.08), 'voltage': (45, 55), 'current': (1.7, 2.3)}
-}
-
+# -------------------------------------------------------
+# 3. SIDEBAR INPUTS
+# -------------------------------------------------------
 st.sidebar.header("Wafer Sensor Inputs")
 process_step = st.sidebar.selectbox("Process Step", ['Etch', 'Deposition', 'Lithography'])
 
@@ -119,7 +121,11 @@ else:
     voltage = st.sidebar.slider("Voltage (V)", 40.0, 60.0, 50.0)
     current = st.sidebar.slider("Current (A)", 1.5, 2.5, 2.0)
 
+# -------------------------------------------------------
+# 4. PREDICTION & EXPLANATION
+# -------------------------------------------------------
 if st.sidebar.button("Analyze Wafer", type="primary"):
+    # Prepare input
     input_data = {
         'temperature': temperature,
         'pressure': pressure,
@@ -131,74 +137,93 @@ if st.sidebar.button("Analyze Wafer", type="primary"):
         'process_step_Deposition': 1 if process_step == 'Deposition' else 0,
         'process_step_Lithography': 1 if process_step == 'Lithography' else 0
     }
-    input_df = pd.DataFrame([input_data], columns=feature_names)
-    
+    input_df = pd.DataFrame([input_data])
+
+    # Predict
     prob = model.predict_proba(input_df)[0][1]
     threshold = 0.30
     prediction = "DEFECTIVE" if prob >= threshold else "GOOD"
-    
+
+    # Display Results
     st.header("Analysis Results")
     col1, col2, col3 = st.columns(3)
-    
+
     risk_emoji = "🔴" if prob >= 0.5 else ("🟡" if prob >= 0.3 else "🟢")
-    
+
     col1.metric("Defect Risk", f"{risk_emoji} {prob*100:.1f}%")
     col2.metric("Prediction", prediction)
-    
+
+    # Cost Impact (Dual Currency)
     USD_TO_INR = 83
     scrap_usd = 500
     scrap_inr = scrap_usd * USD_TO_INR
     cost_impact_usd = int(prob * scrap_usd)
     cost_impact_inr = int(prob * scrap_inr)
     col3.metric("Est. Cost Impact", f"${cost_impact_usd:,} (Rs. {cost_impact_inr:,})")
-    
+
+    # SHAP Explanation
     st.subheader("Why this prediction?")
-    
+
     explainer = shap.TreeExplainer(model)
     shap_values_raw = explainer.shap_values(input_df)
-    
+
+    # Handle different SHAP output formats
     if isinstance(shap_values_raw, list):
         shap_vals = shap_values_raw[1][0]
         base_val = explainer.expected_value[1]
     else:
         shap_vals = shap_values_raw[0, :, 1]
         base_val = explainer.expected_value[1]
-    
+
+    # Create SHAP bar chart
     feature_importance = pd.DataFrame({
         'Feature': feature_names,
         'SHAP Value': shap_vals
     })
     feature_importance = feature_importance[feature_importance['SHAP Value'] != 0]
-    feature_importance = feature_importance[~feature_importance['Feature'].str.startswith('process_step_')]
     feature_importance = feature_importance.sort_values('SHAP Value', ascending=True)
-    
+
+    # Remove process_step columns from chart for clarity
+    feature_importance = feature_importance[~feature_importance['Feature'].str.startswith('process_step_')]
+
     fig, ax = plt.subplots(figsize=(8, 4))
     colors = ['#e74c3c' if x > 0 else '#3498db' for x in feature_importance['SHAP Value']]
     ax.barh(feature_importance['Feature'], feature_importance['SHAP Value'], color=colors)
     ax.set_xlabel('Impact on Prediction (SHAP Value)')
     ax.set_title('Sensor Impact on Defect Risk')
     st.pyplot(fig)
-    
+
+    # Plain English Explanation
     st.subheader("Plain-English Explanation")
-    active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
-    active_features.sort(key=lambda x: abs(x[1]), reverse=True)
-    
-    if active_features:
-        top_feature, top_shap, top_val = active_features[0]
+    top_feature_idx = np.argmax(np.abs(shap_vals))
+    top_feature = feature_names[top_feature_idx]
+    top_shap_val = shap_vals[top_feature_idx]
+    top_sensor_val = input_data[top_feature]
+
+    normal_ranges = {
+        'Etch': {'temperature': (70, 80), 'pressure': (4.5, 5.5), 'gas_flow': (105, 135), 'etch_rate': (510, 590), 'voltage': (275, 325), 'current': (5.3, 6.7)},
+        'Deposition': {'temperature': (425, 475), 'pressure': (2.2, 2.8), 'gas_flow': (180, 220)},
+        'Lithography': {'temperature': (21, 23), 'pressure': (0.92, 1.08), 'voltage': (45, 55), 'current': (1.7, 2.3)}
+    }
+
+    if top_feature in normal_ranges.get(process_step, {}):
         safe_min, safe_max = normal_ranges[process_step][top_feature]
-        if top_val > safe_max:
-            delta = top_val - safe_max
+        if top_sensor_val > safe_max:
+            delta = top_sensor_val - safe_max
             pct = (delta / safe_max) * 100
-            st.warning(f"High Risk Driver: **{top_feature}** is {top_val:.1f}, which is {delta:.1f} ({pct:.1f}%) above the safe upper limit of {safe_max} for the {process_step} step.")
+            st.warning(f"High Risk Driver: **{top_feature}** is {top_sensor_val:.1f}, which is {delta:.1f} ({pct:.1f}%) above the safe upper limit of {safe_max} for the {process_step} step.")
             st.info(f"Recommendation: Check the system controlling {top_feature}.")
-        elif top_val < safe_min:
-            delta = safe_min - top_val
+        elif top_sensor_val < safe_min:
+            delta = safe_min - top_sensor_val
             pct = (delta / safe_min) * 100
-            st.warning(f"High Risk Driver: **{top_feature}** is {top_val:.1f}, which is {delta:.1f} ({pct:.1f}%) below the safe lower limit of {safe_min} for the {process_step} step.")
+            st.warning(f"High Risk Driver: **{top_feature}** is {top_sensor_val:.1f}, which is {delta:.1f} ({pct:.1f}%) below the safe lower limit of {safe_min} for the {process_step} step.")
             st.info(f"Recommendation: Check the system controlling {top_feature}.")
         else:
-            st.success("All sensors within normal ranges. Risk is likely from subtle interactions.")
-    
+            st.success(f"All sensors within normal ranges. Risk is likely from subtle interactions.")
+    else:
+        st.info(f"Top contributing factor: {top_feature} (SHAP value: {top_shap_val:+.3f})")
+
+    # Business Context
     st.subheader("Business Context")
     st.write(f"If this wafer is defective and missed, the scrap cost is **${scrap_usd:,} (Rs. {scrap_inr:,})**.")
     if prob >= threshold:
