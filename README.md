@@ -2,8 +2,6 @@
 
 **A decision-support tool that predicts wafer defect risk, explains *which specific sensor* is causing it, and estimates the financial impact in USD and INR.**
 
-🔗 **Live App:** [https://febsense-ndgzzu7zphp6ehpofyz5cs.streamlit.app/]()
-
 ---
 
 ## The Business Problem
@@ -51,17 +49,17 @@ The fix was not a better algorithm. It was **changing the decision threshold fro
 
 Accuracy went **down** by 3 points. Recall went **up** by 3.5x.
 
-That is the correct trade for this business. Missing a defect costs **$500** (scrapped wafer), while a false alarm costs **$50** (one manual inspection). When the error costs are that asymmetric, you optimise for recall and accept the noise. **The metric you optimise has to come from the cost structure, not the textbook.**
+That is the correct trade for this business. Missing a defect costs **$500** (scrapped wafer after full processing), while a false alarm costs **$50** (one manual inspection). When the error costs are that asymmetric, you optimise for recall and accept the noise. **The metric you optimise has to come from the cost structure, not the textbook.**
 
 ---
 
 ## App Features
 
-- **Interactive Risk Gauge:** A Plotly speedometer visualizes defect probability against the user-defined threshold.
-- **Sensor Status Table:** A clean, color-coded table showing every sensor's reading, its safe range, and its SHAP impact.
-- **Adjustable Threshold Slider:** Lets users see the tradeoff between catching defects and false alarms in real-time.
-- **Dual Currency (USD & INR):** Financial impact is calculated in both currencies for global teams.
-- **Plain-English Explanations:** Translates SHAP values into actionable recommendations (e.g., "Temperature is 1.7°C above the safe limit").
+- **Interactive Risk Gauge** — a Plotly speedometer visualising defect probability against the user-defined threshold
+- **Sensor Status Table** — colour-coded table showing every sensor's reading, safe range, and SHAP impact
+- **Adjustable Threshold Slider** — lets users see the precision/recall tradeoff in real time
+- **Dual Currency (USD & INR)** — financial impact calculated in both currencies
+- **Plain-English Explanations** — translates SHAP values into actionable recommendations
 
 ---
 
@@ -72,6 +70,25 @@ That is the correct trade for this business. Missing a defect costs **$500** (sc
 **Explain** → SHAP TreeExplainer isolates each sensor's contribution to *this specific* prediction
 **Translate** → Compare top SHAP feature against the safe range for that process step
 **Cost** → Multiply risk by scrap cost, output in USD + INR
+
+### Worked Example
+
+```
+Process Step: Deposition
+Temperature: 476.7 C   Pressure: 2.37   Gas Flow: 205.2
+
+Defect Probability: 85.4%
+
+[ALERT] HIGH RISK: Temperature is 476.7C, which is 1.7C (0.4%)
+        above the safe upper limit of 475C.
+[OK] Pressure is 2.37 (Normal).
+[OK] Gas flow is 205.2 (Normal).
+
+RECOMMENDATION: Halt processing. Check the heating element and thermocouple.
+Cost if missed: $500 (₹41,500) | Saved if caught now: $300 (₹24,900)
+```
+
+SHAP assigned temperature a contribution of **+0.41** — by far the largest driver — while pressure sat at **–0.06**. The model independently recovered the physical failure rule (Deposition temp > 475°C) from data alone. Nobody coded that threshold into the model.
 
 ---
 
@@ -89,11 +106,8 @@ That is the correct trade for this business. Missing a defect costs **$500** (sc
 
 ---
 
-## Run It Yourself
+## Run It Locally
 
-**Live app:** [https://febsense-ndgzzu7zphp6ehpofyz5cs.streamlit.app/]()
-
-**Locally:**
 ```bash
 git clone https://github.com/YOUR-USERNAME/FabSense.git   # <<< EDIT username
 cd FabSense
@@ -109,21 +123,33 @@ The app trains the model on startup — no model file to download.
 
 **The dataset is synthetic — 2,000 wafers generated programmatically.** This was deliberate.
 
-The only well-known public semiconductor dataset (UCI SECOM) has 1,567 **anonymised** features named `Feature_1` through `Feature_1567`. You cannot build an explainability tool on that, because "Feature_847 is elevated" is not a sentence an engineer can act on. 
+The only well-known public semiconductor dataset (UCI SECOM) has 1,567 **anonymised** features named `Feature_1` through `Feature_1567`. You cannot build an explainability tool on that, because "Feature_847 is elevated" is not a sentence an engineer can act on. The entire point of this project is actionable explanations.
 
-So the data was generated with **named, physically meaningful sensors** and known failure thresholds per process step. This has a real advantage: because the ground-truth rules are known, it's possible to verify that SHAP recovered the *correct* causal driver rather than just a correlated one.
+So the data was generated with **named, physically meaningful sensors** and known failure thresholds per process step. This has a real advantage: because the ground-truth rules are known, it's possible to verify that SHAP recovered the *correct* causal driver rather than just a correlated one — which is exactly what the Deposition example above demonstrates.
 
-**Honest limitation:** synthetic data means the model has not been validated against real fab noise, sensor drift, or tool-to-tool variation. The pipeline is real; the data is a simulation. Swapping in real labelled fab data would require only changes to the loading step.
+**Honest limitation:** synthetic data means the model has not been validated against real fab noise, sensor drift, tool-to-tool variation, or multi-step interaction effects. The pipeline is real; the data is a simulation. Swapping in real labelled fab data would require only changes to the loading step.
 
 ---
 
 ## What I'd Build Next
 
-- **Threshold optimiser** — sweep 0.05 → 0.95 and pick the threshold that maximises net savings directly
+- **Threshold optimiser** — sweep 0.05 → 0.95 and pick the threshold that maximises net savings directly, instead of hand-picking 30%
 - **Multi-sensor interactions** — currently failures are modelled as single-sensor excursions; real fabs fail on combinations
 - **Batch CSV upload** — score a full lot at once and rank wafers by expected cost
 - **Time-series drift detection** — flag a tool trending toward spec limits *before* it crosses
+- **Validation on SECOM** — accept the loss of interpretability to prove the pipeline holds on real measured data
 
 ---
 
-**Built by <<< Aadhya Joshi** — first hands-on AI project. Built to be used, not just scored.
+## Project Structure
+
+```
+FabSense/
+├── app.py              # Streamlit app: model, SHAP, cost logic, UI
+├── requirements.txt    # Dependencies
+└── README.md
+```
+
+---
+
+**Built by <<< Aadhya Joshi* — first hands-on AI project. Built to be used, not just scored.
