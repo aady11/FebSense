@@ -89,40 +89,52 @@ normal_ranges = {
 # -------------------------------------------------------
 with st.sidebar:
     st.header("Control Panel")
-    st.markdown("Configure wafer parameters below.")
     
-    process_step = st.selectbox("Process Step", ['Etch', 'Deposition', 'Lithography'])
+    # FEATURE 3: BATCH MODE TOGGLE
+    app_mode = st.radio("Operation Mode", ["Single Wafer Check", "Batch Analysis"], index=0)
+    
+    st.divider()
+    
+    if app_mode == "Single Wafer Check":
+        st.markdown("Configure wafer parameters below.")
+        process_step = st.selectbox("Process Step", ['Etch', 'Deposition', 'Lithography'])
 
-    if process_step == 'Etch':
-        temperature = st.slider("Temperature (C)", 60.0, 90.0, 75.0)
-        pressure = st.slider("Pressure (Torr)", 4.0, 6.0, 5.0)
-        gas_flow = st.slider("Gas Flow (sccm)", 100.0, 140.0, 120.0)
-        etch_rate = st.slider("Etch Rate (A/min)", 500.0, 600.0, 550.0)
-        voltage = st.slider("Voltage (V)", 250.0, 350.0, 300.0)
-        current = st.slider("Current (A)", 5.0, 7.0, 6.0)
-    elif process_step == 'Deposition':
-        temperature = st.slider("Temperature (C)", 400.0, 500.0, 450.0)
-        pressure = st.slider("Pressure (Torr)", 2.0, 3.0, 2.5)
-        gas_flow = st.slider("Gas Flow (sccm)", 180.0, 220.0, 200.0)
-        etch_rate = 0.0; voltage = 0.0; current = 0.0
+        if process_step == 'Etch':
+            temperature = st.slider("Temperature (C)", 60.0, 90.0, 75.0)
+            pressure = st.slider("Pressure (Torr)", 4.0, 6.0, 5.0)
+            gas_flow = st.slider("Gas Flow (sccm)", 100.0, 140.0, 120.0)
+            etch_rate = st.slider("Etch Rate (A/min)", 500.0, 600.0, 550.0)
+            voltage = st.slider("Voltage (V)", 250.0, 350.0, 300.0)
+            current = st.slider("Current (A)", 5.0, 7.0, 6.0)
+        elif process_step == 'Deposition':
+            temperature = st.slider("Temperature (C)", 400.0, 500.0, 450.0)
+            pressure = st.slider("Pressure (Torr)", 2.0, 3.0, 2.5)
+            gas_flow = st.slider("Gas Flow (sccm)", 180.0, 220.0, 200.0)
+            etch_rate = 0.0; voltage = 0.0; current = 0.0
+        else:
+            temperature = st.slider("Temperature (C)", 20.0, 24.0, 22.0)
+            pressure = st.slider("Pressure (Torr)", 0.9, 1.1, 1.0)
+            gas_flow = 0.0; etch_rate = 0.0
+            voltage = st.slider("Voltage (V)", 40.0, 60.0, 50.0)
+            current = st.slider("Current (A)", 1.5, 2.5, 2.0)
+        
+        st.divider()
+        st.subheader("Decision Settings")
+        # FEATURE 1: EXPLICIT THRESHOLD LABEL
+        threshold = st.slider("Action Threshold (0-100)", 10, 90, 30, help="Lower = catch more defects but more false alarms.")
+
     else:
-        temperature = st.slider("Temperature (C)", 20.0, 24.0, 22.0)
-        pressure = st.slider("Pressure (Torr)", 0.9, 1.1, 1.0)
-        gas_flow = 0.0; etch_rate = 0.0
-        voltage = st.slider("Voltage (V)", 40.0, 60.0, 50.0)
-        current = st.slider("Current (A)", 1.5, 2.5, 2.0)
-    
-    st.divider()
-    st.subheader("Decision Settings")
-    threshold = st.slider("Risk Threshold (%)", 10, 90, 30, help="Lower = catch more defects but more false alarms. Higher = fewer false alarms but miss more defects.")
-    
-    st.divider()
-    analyze_button = st.button("Analyze Wafer", type="primary", use_container_width=True)
+        # BATCH MODE UPLOAD
+        st.markdown("Upload a CSV file with wafer data.")
+        st.markdown("Expected columns: `process_step`, `temperature`, `pressure`, `gas_flow`, `etch_rate`, `voltage`, `current`")
+        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+        threshold = st.slider("Action Threshold (0-100)", 10, 90, 30)
 
 # -------------------------------------------------------
 # 4. MAIN DASHBOARD
 # -------------------------------------------------------
-if analyze_button:
+if app_mode == "Single Wafer Check":
+    # FEATURE 2: REACTIVE UI (No button, runs instantly)
     input_data = {
         'temperature': temperature, 'pressure': pressure, 'gas_flow': gas_flow,
         'etch_rate': etch_rate, 'voltage': voltage, 'current': current,
@@ -134,14 +146,15 @@ if analyze_button:
     input_df = pd.DataFrame([input_data]).reindex(columns=feature_names, fill_value=0)
     
     prob = model.predict_proba(input_df)[0][1]
-    threshold_val = threshold / 100.0
-    prediction = "DEFECTIVE" if prob >= threshold_val else "GOOD"
+    risk_score = prob * 100  # FEATURE 1: 0-100 Scale
     
-    if prob >= 0.5: risk_label = "HIGH RISK"
-    elif prob >= threshold_val: risk_label = "ELEVATED RISK"
+    if risk_score >= 50: risk_label = "HIGH RISK"
+    elif risk_score >= threshold: risk_label = "ELEVATED RISK"
     else: risk_label = "LOW RISK"
+    
+    prediction = "DEFECTIVE" if risk_score >= threshold else "GOOD"
 
-    # SHAP Calculation (done once to use across tabs)
+    # SHAP Calculation
     explainer = shap.TreeExplainer(model)
     shap_values_raw = explainer.shap_values(input_df)
     if isinstance(shap_values_raw, list):
@@ -152,7 +165,6 @@ if analyze_button:
     active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
     active_features.sort(key=lambda x: abs(x[1]), reverse=True)
 
-    # Create Tabs
     tab1, tab2, tab3 = st.tabs(["📊 Verdict & Risk", "🔬 Root Cause Analysis", "💰 Business Impact & Action"])
 
     with tab1:
@@ -161,22 +173,19 @@ if analyze_button:
         col1, col2 = st.columns([1.5, 1])
         
         with col1:
-            # Plotly Gauge Chart
-            if prob >= 0.5: gauge_color = "red"
-            elif prob >= threshold_val: gauge_color = "orange"
+            # FEATURE 1: EXPLICIT GAUGE LABELS
+            if risk_score >= 50: gauge_color = "red"
+            elif risk_score >= threshold: gauge_color = "orange"
             else: gauge_color = "green"
             
             fig_gauge = go.Figure(go.Indicator(
                 mode = "gauge+number",
-                value = prob * 100,
+                value = risk_score,
                 domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': f"Status: {risk_label}", 'font': {'size': 24}},
+                title = {'text': f"Risk Score: {risk_score:.1f}/100", 'font': {'size': 20}},
                 gauge = {
-                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+                    'axis': {'range': [None, 100], 'tickwidth': 1},
                     'bar': {'color': gauge_color, 'thickness': 0.4},
-                    'bgcolor': "white",
-                    'borderwidth': 2,
-                    'bordercolor': "gray",
                     'steps': [
                         {'range': [0, 30], 'color': 'rgba(46, 204, 113, 0.2)'},
                         {'range': [30, 60], 'color': 'rgba(243, 156, 18, 0.2)'},
@@ -184,40 +193,32 @@ if analyze_button:
                     'threshold': {
                         'line': {'color': "black", 'width': 4},
                         'thickness': 0.75,
-                        'value': threshold_val * 100}
+                        'value': threshold}
                 }
             ))
             fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=60, b=20))
             st.plotly_chart(fig_gauge, use_container_width=True)
+            st.caption(f"Black line = Action Threshold: {threshold}/100")
             
         with col2:
             st.markdown("#### Summary")
             st.metric("Process Step", process_step)
             st.metric("Prediction", prediction)
-            st.metric("Risk Threshold", f"{threshold}%")
-            st.info(f"The black line on the gauge shows your decision threshold. The model is {prob*100:.1f}% confident this wafer is defective.")
+            st.metric("Risk Level", risk_label)
 
     with tab2:
         st.header("Root Cause Analysis")
         
-        # Sensor Status Table
         st.subheader("Sensor Status Table")
         sensor_table_data = []
         for f, s, v in active_features:
             safe_min, safe_max = normal_ranges[process_step][f]
             status = "🟢 Normal" if safe_min <= v <= safe_max else "🔴 Out of Spec"
-            sensor_table_data.append({
-                'Sensor': f, 'Reading': f"{v:.2f}", 
-                'Safe Range': f"{safe_min} - {safe_max}", 
-                'Status': status, 'SHAP Impact': f"{s:+.4f}"
-            })
+            sensor_table_data.append({'Sensor': f, 'Reading': f"{v:.2f}", 'Safe Range': f"{safe_min} - {safe_max}", 'Status': status, 'SHAP Impact': f"{s:+.4f}"})
         
-        df_sensors = pd.DataFrame(sensor_table_data)
-        st.dataframe(df_sensors, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(sensor_table_data), use_container_width=True, hide_index=True)
         
         st.divider()
-        
-        # SHAP Chart
         st.subheader("Feature Impact (SHAP)")
         feature_importance = pd.DataFrame({'Feature': feature_names, 'SHAP Value': shap_vals})
         feature_importance = feature_importance[feature_importance['SHAP Value'] != 0]
@@ -227,50 +228,41 @@ if analyze_button:
         fig, ax = plt.subplots(figsize=(10, 5))
         colors = ['#e74c3c' if x > 0 else '#3498db' for x in feature_importance['SHAP Value']]
         ax.barh(feature_importance['Feature'], feature_importance['SHAP Value'], color=colors)
-        ax.set_xlabel('Impact on Prediction (SHAP Value)', fontsize=12)
-        ax.set_title('Sensor Impact on Defect Risk', fontsize=14)
+        ax.set_xlabel('Impact on Prediction', fontsize=12)
         st.pyplot(fig)
         
         st.divider()
         st.subheader("Plain-English Explanation")
+        
         if active_features:
             top_feature, top_shap, top_val = active_features[0]
             safe_min, safe_max = normal_ranges[process_step][top_feature]
             
             if top_val > safe_max or top_val < safe_min:
+                # FEATURE 4: PLAIN ENGLISH REWRITE
                 if top_val > safe_max:
-                    delta = top_val - safe_max
-                    pct = (delta / safe_max) * 100
-                    st.error(f"**Primary Cause:** {top_feature} excursion in {process_step} step.")
-                    st.markdown(f"**Technical Detail:** Sensor reads **{top_val:.1f}**, which exceeds the safe upper limit of **{safe_max}** by **{delta:.1f} ({pct:.1f}%)**.")
+                    st.error(f"**{top_feature} is running dangerously high for this process step — likely cause of the defect risk.**")
+                    st.caption(f"Reading: {top_val:.1f}, Safe Max: {safe_max}")
                 else:
-                    delta = safe_min - top_val
-                    pct = (delta / safe_min) * 100
-                    st.error(f"**Primary Cause:** {top_feature} excursion in {process_step} step.")
-                    st.markdown(f"**Technical Detail:** Sensor reads **{top_val:.1f}**, which is below the safe lower limit of **{safe_min}** by **{delta:.1f} ({pct:.1f}%)**.")
+                    st.error(f"**{top_feature} is running dangerously low for this process step — likely cause of the defect risk.**")
+                    st.caption(f"Reading: {top_val:.1f}, Safe Min: {safe_min}")
             else:
-                st.success("All sensors are operating within normal parameters.")
-                st.info("Risk is likely driven by subtle multi-sensor interactions. Continue monitoring, but no immediate action required.")
+                st.success("**All sensors within normal parameters.**")
+                st.info("Risk is likely driven by subtle multi-sensor interactions.")
 
     with tab3:
         st.header("Business Impact & Action Plan")
         
         USD_TO_INR = 83
-        scrap_usd = 500
-        scrap_inr = scrap_usd * USD_TO_INR
-        early_stop_usd = 300
-        early_stop_inr = early_stop_usd * USD_TO_INR
-        inspection_usd = 50
-        inspection_inr = inspection_usd * USD_TO_INR
+        scrap_usd = 500; scrap_inr = scrap_usd * USD_TO_INR
+        early_stop_usd = 300; early_stop_inr = early_stop_usd * USD_TO_INR
+        inspection_usd = 50; inspection_inr = inspection_usd * USD_TO_INR
         
         st.write("#### Financial Context (Per Wafer)")
         col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Scrap Cost (If Missed)", f"${scrap_usd:,}", delta=f"Rs. {scrap_inr:,}", delta_color="inverse")
-        with col2:
-            st.metric("Savings (If Caught Early)", f"${early_stop_usd:,}", delta=f"Rs. {early_stop_inr:,}", delta_color="normal")
-        with col3:
-            st.metric("Inspection Cost (False Alarm)", f"${inspection_usd:,}", delta=f"Rs. {inspection_inr:,}", delta_color="off")
+        with col1: st.metric("Scrap Cost (If Missed)", f"${scrap_usd:,}", delta=f"Rs. {scrap_inr:,}", delta_color="inverse")
+        with col2: st.metric("Savings (If Caught Early)", f"${early_stop_usd:,}", delta=f"Rs. {early_stop_inr:,}", delta_color="normal")
+        with col3: st.metric("Inspection Cost (False Alarm)", f"${inspection_usd:,}", delta=f"Rs. {inspection_inr:,}", delta_color="off")
             
         st.divider()
         st.write("#### Actionable Recommendation")
@@ -281,12 +273,53 @@ if analyze_button:
             
             if top_val > safe_max or top_val < safe_min:
                 st.warning(f"**IMMEDIATE ACTION REQUIRED:** Halt processing. Inspect the system controlling **{top_feature}**.")
-                st.markdown(f"- Do not proceed to the next step until {top_feature} stabilizes within the **{safe_min}-{safe_max}** range.")
+                st.markdown(f"- Do not proceed until {top_feature} stabilizes within the **{safe_min}-{safe_max}** range.")
                 st.markdown(f"- Catching this now saves **${early_stop_usd:,} (Rs. {early_stop_inr:,})** vs. scrapping at end-of-line.")
             else:
                 st.success("**NO IMMEDIATE ACTION REQUIRED:** All sensors nominal. Proceed to next step.")
-                st.markdown("- Continue standard monitoring protocols.")
 
+# -------------------------------------------------------
+# FEATURE 3: BATCH MODE LOGIC
+# -------------------------------------------------------
 else:
-    st.markdown("### Welcome to FabSense")
-    st.info("Configure the control panel on the left and click **Analyze Wafer** to run a diagnostic.")
+    st.header("Batch Analysis")
+    if uploaded_file is not None:
+        try:
+            batch_df = pd.read_csv(uploaded_file)
+            st.write(f"Uploaded {len(batch_df)} wafers. Running predictions...")
+            
+            # Prepare data for model
+            batch_features = batch_df.drop(columns=['defect_label'], errors='ignore')
+            batch_encoded = pd.get_dummies(batch_features, columns=['process_step'], drop_first=False)
+            batch_encoded = batch_encoded.reindex(columns=feature_names, fill_value=0)
+            
+            # Predict
+            batch_probs = model.predict_proba(batch_encoded)[:, 1]
+            batch_df['risk_score'] = (batch_probs * 100).round(1)
+            batch_df['prediction'] = np.where(batch_probs >= (threshold/100), "DEFECTIVE", "GOOD")
+            
+            # Sort by risk
+            batch_df_sorted = batch_df.sort_values(by='risk_score', ascending=False)
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.subheader("Risk Ranking (Highest First)")
+                st.dataframe(batch_df_sorted, use_container_width=True, hide_index=True)
+            
+            with col2:
+                st.subheader("Defect Rate by Step")
+                if 'process_step' in batch_df.columns:
+                    step_summary = batch_df.groupby('process_step')['prediction'].apply(lambda x: (x == 'DEFECTIVE').mean() * 100).reset_index()
+                    step_summary.columns = ['Process Step', 'Defect Rate (%)']
+                    fig, ax = plt.subplots(figsize=(5, 4))
+                    ax.bar(step_summary['Process Step'], step_summary['Defect Rate (%)'], color=['#e74c3c', '#f39c12', '#3498db'])
+                    ax.set_ylabel('Defect Rate (%)')
+                    st.pyplot(fig)
+                else:
+                    st.info("Process step column not found in upload.")
+        except Exception as e:
+            st.error(f"Error processing file: {e}")
+            st.info("Please ensure your CSV has the correct columns: process_step, temperature, pressure, gas_flow, etch_rate, voltage, current")
+    else:
+        st.info("Upload a CSV file to begin batch analysis.")
