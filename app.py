@@ -7,65 +7,95 @@ import shap
 import matplotlib.pyplot as plt
 
 # -------------------------------------------------------
-# 1. APP CONFIGURATION & CUSTOM CSS (The UI Magic)
+# 1. APP CONFIGURATION & PREMIUM UI CSS
 # -------------------------------------------------------
-st.set_page_config(page_title="YieldGuard", page_icon="🏭", layout="wide")
+st.set_page_config(page_title="FabSense", page_icon="🏭", layout="wide")
 
-# Custom CSS for animations, smooth bars, and premium feel
 st.markdown("""
 <style>
-/* Smooth fade-in for all elements */
-.stMarkdown, .stMetric, .stAlert {
-    animation: fadeIn 0.6s ease-in-out;
+/* Gradient Title */
+.fabsense-title {
+    font-size: 3rem !important;
+    font-weight: 800 !important;
+    background: linear-gradient(90deg, #1f77b4, #ff7f0e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0rem !important;
+}
+
+/* Custom Metric Cards */
+.metric-card {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    border-left: 5px solid #1f77b4;
+    margin-bottom: 10px;
+    transition: transform 0.2s;
+}
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+}
+.metric-card.danger { border-left-color: #e74c3c; }
+.metric-card.warning { border-left-color: #f39c12; }
+.metric-card.success { border-left-color: #2ecc71; }
+
+/* Animated Risk Bar */
+.risk-bar-container {
+    background-color: #e0e0e0;
+    border-radius: 20px;
+    height: 35px;
+    width: 100%;
+    overflow: hidden;
+    margin-bottom: 25px;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+}
+.risk-bar-fill {
+    height: 100%;
+    border-radius: 20px;
+    background: linear-gradient(90deg, #2ecc71, #f1c40f, #e74c3c);
+    transition: width 1s ease-in-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 1rem;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    box-shadow: 0 0 15px rgba(231, 76, 60, 0.5);
+}
+
+/* Fade-in Animation for Results */
+.fade-in-section {
+    animation: fadeIn 0.8s ease-in-out;
 }
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Pulsing live dot */
+/* Pulsing Live Dot */
 .pulsing-dot {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     background-color: #2ecc71;
     border-radius: 50%;
     display: inline-block;
     animation: pulse 1.5s infinite;
     margin-right: 8px;
+    vertical-align: middle;
 }
 @keyframes pulse {
     0% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7); }
     70% { box-shadow: 0 0 0 10px rgba(46, 204, 113, 0); }
     100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
 }
-
-/* Custom Risk Bar */
-.risk-bar-background {
-    background-color: #e0e0e0;
-    border-radius: 20px;
-    height: 24px;
-    width: 100%;
-    overflow: hidden;
-    margin-bottom: 20px;
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
-}
-.risk-bar-fill {
-    height: 100%;
-    border-radius: 20px;
-    transition: width 0.8s ease-in-out, background-color 0.5s ease;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding-right: 10px;
-    color: white;
-    font-weight: bold;
-    font-size: 12px;
-}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("YieldGuard - Process Intelligence Platform")
-st.markdown('<span class="pulsing-dot"></span> **System Active**', unsafe_allow_html=True)
+st.markdown('<p class="fabsense-title">FabSense</p>', unsafe_allow_html=True)
+st.markdown('<span class="pulsing-dot"></span> <b>AI Co-Pilot for Yield Loss — System Active</b>', unsafe_allow_html=True)
 st.markdown("---")
 
 # -------------------------------------------------------
@@ -81,26 +111,15 @@ def generate_data():
     for i in range(n_wafers):
         step = step_assignment[i]
         if step == 'Etch':
-            temperature = np.random.normal(75, 3)
-            pressure = np.random.normal(5.0, 0.3)
-            gas_flow = np.random.normal(120, 8)
-            etch_rate = np.random.normal(550, 25)
-            voltage = np.random.normal(300, 15)
-            current = np.random.normal(6.0, 0.4)
+            temperature = np.random.normal(75, 3); pressure = np.random.normal(5.0, 0.3)
+            gas_flow = np.random.normal(120, 8); etch_rate = np.random.normal(550, 25)
+            voltage = np.random.normal(300, 15); current = np.random.normal(6.0, 0.4)
         elif step == 'Deposition':
-            temperature = np.random.normal(450, 15)
-            pressure = np.random.normal(2.5, 0.2)
-            gas_flow = np.random.normal(200, 12)
-            etch_rate = 0
-            voltage = 0
-            current = 0
+            temperature = np.random.normal(450, 15); pressure = np.random.normal(2.5, 0.2)
+            gas_flow = np.random.normal(200, 12); etch_rate = 0; voltage = 0; current = 0
         else:
-            temperature = np.random.normal(22, 0.5)
-            pressure = np.random.normal(1.0, 0.05)
-            gas_flow = 0
-            etch_rate = 0
-            voltage = np.random.normal(50, 3)
-            current = np.random.normal(2.0, 0.2)
+            temperature = np.random.normal(22, 0.5); pressure = np.random.normal(1.0, 0.05)
+            gas_flow = 0; etch_rate = 0; voltage = np.random.normal(50, 3); current = np.random.normal(2.0, 0.2)
         
         defect_prob = 0.05
         if step == 'Etch':
@@ -122,16 +141,9 @@ def generate_data():
         
         defect_prob = min(defect_prob, 0.95)
         defect_label = 1 if np.random.random() < defect_prob else 0
-        data.append({
-            'process_step': step,
-            'temperature': round(temperature, 2),
-            'pressure': round(pressure, 3),
-            'gas_flow': round(gas_flow, 1),
-            'etch_rate': round(etch_rate, 1),
-            'voltage': round(voltage, 1),
-            'current': round(current, 2),
-            'defect_label': defect_label
-        })
+        data.append({'process_step': step, 'temperature': round(temperature, 2), 'pressure': round(pressure, 3),
+                     'gas_flow': round(gas_flow, 1), 'etch_rate': round(etch_rate, 1), 'voltage': round(voltage, 1),
+                     'current': round(current, 2), 'defect_label': defect_label})
     return pd.DataFrame(data)
 
 @st.cache_resource
@@ -174,14 +186,11 @@ with st.sidebar:
         temperature = st.slider("Temperature (C)", 400.0, 500.0, 450.0)
         pressure = st.slider("Pressure (Torr)", 2.0, 3.0, 2.5)
         gas_flow = st.slider("Gas Flow (sccm)", 180.0, 220.0, 200.0)
-        etch_rate = 0.0
-        voltage = 0.0
-        current = 0.0
+        etch_rate = 0.0; voltage = 0.0; current = 0.0
     else:
         temperature = st.slider("Temperature (C)", 20.0, 24.0, 22.0)
         pressure = st.slider("Pressure (Torr)", 0.9, 1.1, 1.0)
-        gas_flow = 0.0
-        etch_rate = 0.0
+        gas_flow = 0.0; etch_rate = 0.0
         voltage = st.slider("Voltage (V)", 40.0, 60.0, 50.0)
         current = st.slider("Current (A)", 1.5, 2.5, 2.0)
     
@@ -197,43 +206,37 @@ with st.sidebar:
 # -------------------------------------------------------
 if analyze_button:
     input_data = {
-        'temperature': temperature,
-        'pressure': pressure,
-        'gas_flow': gas_flow,
-        'etch_rate': etch_rate,
-        'voltage': voltage,
-        'current': current,
+        'temperature': temperature, 'pressure': pressure, 'gas_flow': gas_flow,
+        'etch_rate': etch_rate, 'voltage': voltage, 'current': current,
         'process_step_Etch': 1 if process_step == 'Etch' else 0,
         'process_step_Deposition': 1 if process_step == 'Deposition' else 0,
         'process_step_Lithography': 1 if process_step == 'Lithography' else 0
     }
     
-    # THE FIX: Force columns to match exactly what the model trained on
     input_df = pd.DataFrame([input_data]).reindex(columns=feature_names, fill_value=0)
     
     prob = model.predict_proba(input_df)[0][1]
     threshold_val = threshold / 100.0
     prediction = "DEFECTIVE" if prob >= threshold_val else "GOOD"
     
-    # Top Metrics
-    st.subheader("Verdict")
+    # Apply fade-in class to whole results section
+    st.markdown('<div class="fade-in-section">', unsafe_allow_html=True)
+    
+    # Top Metrics in Custom Cards
+    if prob >= 0.5: risk_label = "HIGH RISK"; card_class = "danger"
+    elif prob >= threshold_val: risk_label = "ELEVATED RISK"; card_class = "warning"
+    else: risk_label = "LOW RISK"; card_class = "success"
+    
     col1, col2 = st.columns(2)
-    
-    if prob >= 0.5: risk_label = "HIGH RISK"
-    elif prob >= threshold_val: risk_label = "ELEVATED RISK"
-    else: risk_label = "LOW RISK"
-    
-    col1.metric("Defect Probability", f"{prob*100:.1f}%")
-    col2.metric("Status", f"{prediction} ({risk_label})")
+    with col1:
+        st.markdown(f'<div class="metric-card {card_class}"><h3>Defect Probability</h3><h1>{prob*100:.1f}%</h1></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="metric-card {card_class}"><h3>Status</h3><h1>{prediction}</h1><p>{risk_label}</p></div>', unsafe_allow_html=True)
     
     # Animated Risk Bar
-    if prob >= 0.5: bar_color = "#e74c3c"
-    elif prob >= threshold_val: bar_color = "#f39c12"
-    else: bar_color = "#2ecc71"
-    
     st.markdown(f"""
-    <div class="risk-bar-background">
-        <div class="risk-bar-fill" style="width: {prob*100}%; background-color: {bar_color};">
+    <div class="risk-bar-container">
+        <div class="risk-bar-fill" style="width: {max(prob*100, 2)}%;">
             {prob*100:.1f}%
         </div>
     </div>
@@ -251,10 +254,7 @@ if analyze_button:
     else:
         shap_vals = shap_values_raw[0, :, 1]
     
-    feature_importance = pd.DataFrame({
-        'Feature': feature_names,
-        'SHAP Value': shap_vals
-    })
+    feature_importance = pd.DataFrame({'Feature': feature_names, 'SHAP Value': shap_vals})
     feature_importance = feature_importance[feature_importance['SHAP Value'] != 0]
     feature_importance = feature_importance[~feature_importance['Feature'].str.startswith('process_step_')]
     feature_importance = feature_importance.sort_values('SHAP Value', ascending=True)
@@ -268,8 +268,8 @@ if analyze_button:
     
     st.markdown("---")
     
-    # Detailed Diagnostic Report
-    st.subheader("Diagnostic Report & Action Plan")
+    # Detailed Diagnostic Report & Business Context
+    st.subheader("Diagnostic Report & Business Context")
     
     active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
     active_features.sort(key=lambda x: abs(x[1]), reverse=True)
@@ -287,20 +287,20 @@ if analyze_button:
         safe_min, safe_max = normal_ranges[process_step][top_feature]
         
         if top_val > safe_max or top_val < safe_min:
-            with st.expander("⚠️ VIEW CRITICAL ALERT", expanded=True):
+            with st.expander("⚠️ VIEW CRITICAL ALERT & BUSINESS IMPACT", expanded=True):
+                st.error(f"**Primary Cause:** {top_feature} excursion in {process_step} step.")
+                
                 if top_val > safe_max:
                     delta = top_val - safe_max
                     pct = (delta / safe_max) * 100
-                    st.error(f"**Primary Cause:** {top_feature} excursion in {process_step} step.")
                     st.markdown(f"**Technical Detail:** Sensor reads **{top_val:.1f}**, which exceeds the safe upper limit of **{safe_max}** by **{delta:.1f} ({pct:.1f}%)**.")
                 else:
                     delta = safe_min - top_val
                     pct = (delta / safe_min) * 100
-                    st.error(f"**Primary Cause:** {top_feature} excursion in {process_step} step.")
                     st.markdown(f"**Technical Detail:** Sensor reads **{top_val:.1f}**, which is below the safe lower limit of **{safe_min}** by **{delta:.1f} ({pct:.1f}%)**.")
                 
                 st.markdown("---")
-                st.markdown("**Business Impact:**")
+                st.markdown("**Business Impact & Decision:**")
                 st.markdown(f"- If this wafer is scrapped at end-of-line: **Loss of ${scrap_usd:,} (Rs. {scrap_inr:,})**")
                 st.markdown(f"- If caught and stopped now: **Save ${early_stop_usd:,} (Rs. {early_stop_inr:,})**")
                 st.markdown(f"- If this is a false alarm: **Inspection cost of ${inspection_usd:,} (Rs. {inspection_inr:,})**")
@@ -313,6 +313,9 @@ if analyze_button:
                 st.info("Risk is likely driven by subtle multi-sensor interactions. Continue monitoring, but no immediate action required.")
     else:
         st.info("No active sensors found for this step.")
+        
+    st.markdown('</div>', unsafe_allow_html=True) # Close fade-in
 
 else:
-    st.info("Configure the control panel on the left and click 'Analyze Wafer' to run a diagnostic.")
+    st.markdown("### Welcome to FabSense")
+    st.info("Configure the control panel on the left and click **Analyze Wafer** to run a diagnostic.")
