@@ -6,14 +6,93 @@ from sklearn.model_selection import train_test_split
 import shap
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+import time # Needed for the loading animation
 
 # -------------------------------------------------------
-# 1. APP CONFIGURATION
+# 1. APP CONFIGURATION & INDUSTRIAL CSS THEME
 # -------------------------------------------------------
 st.set_page_config(page_title="FabSense", page_icon="🏭", layout="wide")
 
-st.title("FabSense — AI Co-Pilot for Yield Loss")
-st.caption("Predict defect risk, identify root causes, and calculate financial impact in USD & INR.")
+# INJECT CUSTOM CSS (The Control Room Look)
+st.markdown("""
+<style>
+    /* Main Background & Text */
+    .stApp {
+        background-color: #1A1D21;
+        color: #E8E6E1;
+    }
+    
+    /* Sidebar Background */
+    [data-testid="stSidebar"] {
+        background-color: #14161A;
+        border-right: 1px solid #333;
+    }
+    
+    /* Typography: Monospace for data, Sans for text */
+    body, .stMarkdown, .stLabel, .stCaption {
+        font-family: 'IBM Plex Sans', 'Inter', sans-serif;
+    }
+    .stMetric, .stMetricValue, .stMetricDelta, code, .dataframe {
+        font-family: 'IBM Plex Mono', 'JetBrains Mono', monospace !important;
+    }
+    
+    /* Executive Summary Card */
+    .exec-card {
+        background-color: #23272B;
+        border: 1px solid #333;
+        border-left: 5px solid #F2A93B; /* Amber accent */
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    .exec-title {
+        color: #F2A93B;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 1.2rem;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 15px;
+    }
+    
+    /* Metric Tiles Dark Mode */
+    [data-testid="stMetricValue"] {
+        color: #E8E6E1;
+        font-size: 1.8rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #A0A0A0;
+    }
+    [data-testid="stMetricDelta"] {
+        font-size: 1rem !important;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+        background-color: #1A1D21;
+        border-bottom: 1px solid #333;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #A0A0A0 !important;
+        font-family: 'IBM Plex Mono', monospace;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #F2A93B !important;
+        border-bottom-color: #F2A93B !important;
+    }
+    
+    /* Sliders */
+    .stSlider [data-baseweb="slider-thumb"] {
+        background-color: #F2A93B;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+st.markdown('<p style="font-family: IBM Plex Mono; color: #F2A93B; font-size: 2rem; font-weight: bold; margin-bottom: 0;">FabSense</p>', unsafe_allow_html=True)
+st.caption("Process Intelligence Platform — AI Co-Pilot for Yield Loss")
 st.divider()
 
 # -------------------------------------------------------
@@ -89,10 +168,7 @@ normal_ranges = {
 # -------------------------------------------------------
 with st.sidebar:
     st.header("Control Panel")
-    
-    # FEATURE 3: BATCH MODE TOGGLE
     app_mode = st.radio("Operation Mode", ["Single Wafer Check", "Batch Analysis"], index=0)
-    
     st.divider()
     
     if app_mode == "Single Wafer Check":
@@ -120,13 +196,10 @@ with st.sidebar:
         
         st.divider()
         st.subheader("Decision Settings")
-        # FEATURE 1: EXPLICIT THRESHOLD LABEL
-        threshold = st.slider("Action Threshold (0-100)", 10, 90, 30, help="Lower = catch more defects but more false alarms.")
+        threshold = st.slider("Action Threshold (0-100)", 10, 90, 30)
 
     else:
-        # BATCH MODE UPLOAD
         st.markdown("Upload a CSV file with wafer data.")
-        st.markdown("Expected columns: `process_step`, `temperature`, `pressure`, `gas_flow`, `etch_rate`, `voltage`, `current`")
         uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
         threshold = st.slider("Action Threshold (0-100)", 10, 90, 30)
 
@@ -134,7 +207,6 @@ with st.sidebar:
 # 4. MAIN DASHBOARD
 # -------------------------------------------------------
 if app_mode == "Single Wafer Check":
-    # FEATURE 2: REACTIVE UI (No button, runs instantly)
     input_data = {
         'temperature': temperature, 'pressure': pressure, 'gas_flow': gas_flow,
         'etch_rate': etch_rate, 'voltage': voltage, 'current': current,
@@ -145,27 +217,53 @@ if app_mode == "Single Wafer Check":
     
     input_df = pd.DataFrame([input_data]).reindex(columns=feature_names, fill_value=0)
     
-    prob = model.predict_proba(input_df)[0][1]
-    risk_score = prob * 100  # FEATURE 1: 0-100 Scale
-    
-    if risk_score >= 50: risk_label = "HIGH RISK"
-    elif risk_score >= threshold: risk_label = "ELEVATED RISK"
-    else: risk_label = "LOW RISK"
+    # LOADING EXPERIENCE (The Spinner)
+    with st.status("Analyzing wafer sensors...", expanded=True) as status:
+        st.write("Running AI prediction model...")
+        prob = model.predict_proba(input_df)[0][1]
+        risk_score = prob * 100
+        
+        st.write("Generating SHAP explanations...")
+        explainer = shap.TreeExplainer(model)
+        shap_values_raw = explainer.shap_values(input_df)
+        if isinstance(shap_values_raw, list):
+            shap_vals = shap_values_raw[1][0]
+        else:
+            shap_vals = shap_values_raw[0, :, 1]
+        
+        active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
+        active_features.sort(key=lambda x: abs(x[1]), reverse=True)
+        
+        time.sleep(0.5) # Tiny pause to make the loading feel real
+        status.update(label="Analysis Complete", state="complete", expanded=False)
+
+    if risk_score >= 50: risk_label = "🔴 HIGH RISK"
+    elif risk_score >= threshold: risk_label = "🟡 ELEVATED RISK"
+    else: risk_label = "🟢 LOW RISK"
     
     prediction = "DEFECTIVE" if risk_score >= threshold else "GOOD"
 
-    # SHAP Calculation
-    explainer = shap.TreeExplainer(model)
-    shap_values_raw = explainer.shap_values(input_df)
-    if isinstance(shap_values_raw, list):
-        shap_vals = shap_values_raw[1][0]
-    else:
-        shap_vals = shap_values_raw[0, :, 1]
+    # EXECUTIVE SUMMARY CARD
+    top_feature = active_features[0][0] if active_features else "N/A"
+    top_val = active_features[0][2] if active_features else 0
+    safe_min, safe_max = normal_ranges.get(process_step, {}).get(top_feature, (0, 0))
     
-    active_features = [(f, s, input_data[f]) for f, s in zip(feature_names, shap_vals) if f in normal_ranges.get(process_step, {})]
-    active_features.sort(key=lambda x: abs(x[1]), reverse=True)
+    if top_val > safe_max or top_val < safe_min:
+        action_text = f"Halt process. Inspect {top_feature} controller immediately."
+    else:
+        action_text = "Proceed to next step. All sensors nominal."
 
-    tab1, tab2, tab3 = st.tabs(["📊 Verdict & Risk", "🔬 Root Cause Analysis", "💰 Business Impact & Action"])
+    st.markdown(f"""
+    <div class="exec-card">
+        <div class="exec-title">Executive Summary — {process_step} Step</div>
+        <p><b>Risk Level:</b> {risk_label} ({risk_score:.1f}/100) &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <b>Primary Cause:</b> {top_feature} &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <b>Financial Impact:</b> $500 (₹41,500)</p>
+        <p><b>Recommended Action:</b> {action_text}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tab1, tab2, tab3 = st.tabs(["Live Verdict", "Diagnostics", "Impact Report"])
 
     with tab1:
         st.header("Wafer Verdict")
@@ -173,32 +271,34 @@ if app_mode == "Single Wafer Check":
         col1, col2 = st.columns([1.5, 1])
         
         with col1:
-            # FEATURE 1: EXPLICIT GAUGE LABELS
-            if risk_score >= 50: gauge_color = "red"
-            elif risk_score >= threshold: gauge_color = "orange"
-            else: gauge_color = "green"
+            if risk_score >= 50: gauge_color = "#e74c3c"
+            elif risk_score >= threshold: gauge_color = "#F2A93B"
+            else: gauge_color = "#5B8FA8"
             
             fig_gauge = go.Figure(go.Indicator(
                 mode = "gauge+number",
                 value = risk_score,
                 domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': f"Risk Score: {risk_score:.1f}/100", 'font': {'size': 20}},
+                title = {'text': f"Risk Score: {risk_score:.1f}/100", 'font': {'size': 20, 'color': '#E8E6E1'}},
                 gauge = {
-                    'axis': {'range': [None, 100], 'tickwidth': 1},
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "#E8E6E1"},
                     'bar': {'color': gauge_color, 'thickness': 0.4},
+                    'bgcolor': "#1A1D21",
+                    'borderwidth': 2,
+                    'bordercolor': "#333",
                     'steps': [
-                        {'range': [0, 30], 'color': 'rgba(46, 204, 113, 0.2)'},
-                        {'range': [30, 60], 'color': 'rgba(243, 156, 18, 0.2)'},
+                        {'range': [0, 30], 'color': 'rgba(91, 143, 168, 0.2)'},
+                        {'range': [30, 60], 'color': 'rgba(242, 169, 59, 0.2)'},
                         {'range': [60, 100], 'color': 'rgba(231, 76, 60, 0.2)'}],
                     'threshold': {
-                        'line': {'color': "black", 'width': 4},
+                        'line': {'color': "#E8E6E1", 'width': 4},
                         'thickness': 0.75,
                         'value': threshold}
                 }
             ))
-            fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=60, b=20))
+            fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=60, b=20), paper_bgcolor="#1A1D21")
             st.plotly_chart(fig_gauge, use_container_width=True)
-            st.caption(f"Black line = Action Threshold: {threshold}/100")
+            st.caption(f"White line = Action Threshold: {threshold}/100")
             
         with col2:
             st.markdown("#### Summary")
@@ -226,9 +326,15 @@ if app_mode == "Single Wafer Check":
         feature_importance = feature_importance.sort_values('SHAP Value', ascending=True)
         
         fig, ax = plt.subplots(figsize=(10, 5))
-        colors = ['#e74c3c' if x > 0 else '#3498db' for x in feature_importance['SHAP Value']]
+        fig.patch.set_facecolor('#1A1D21')
+        ax.set_facecolor('#1A1D21')
+        
+        colors = ['#e74c3c' if x > 0 else '#5B8FA8' for x in feature_importance['SHAP Value']]
         ax.barh(feature_importance['Feature'], feature_importance['SHAP Value'], color=colors)
-        ax.set_xlabel('Impact on Prediction', fontsize=12)
+        ax.set_xlabel('Impact on Prediction', fontsize=12, color='#E8E6E1')
+        ax.tick_params(colors='#E8E6E1')
+        for spine in ax.spines.values():
+            spine.set_edgecolor('#333')
         st.pyplot(fig)
         
         st.divider()
@@ -239,7 +345,6 @@ if app_mode == "Single Wafer Check":
             safe_min, safe_max = normal_ranges[process_step][top_feature]
             
             if top_val > safe_max or top_val < safe_min:
-                # FEATURE 4: PLAIN ENGLISH REWRITE
                 if top_val > safe_max:
                     st.error(f"**{top_feature} is running dangerously high for this process step — likely cause of the defect risk.**")
                     st.caption(f"Reading: {top_val:.1f}, Safe Max: {safe_max}")
@@ -279,7 +384,7 @@ if app_mode == "Single Wafer Check":
                 st.success("**NO IMMEDIATE ACTION REQUIRED:** All sensors nominal. Proceed to next step.")
 
 # -------------------------------------------------------
-# FEATURE 3: BATCH MODE LOGIC
+# BATCH MODE LOGIC
 # -------------------------------------------------------
 else:
     st.header("Batch Analysis")
@@ -288,17 +393,14 @@ else:
             batch_df = pd.read_csv(uploaded_file)
             st.write(f"Uploaded {len(batch_df)} wafers. Running predictions...")
             
-            # Prepare data for model
             batch_features = batch_df.drop(columns=['defect_label'], errors='ignore')
             batch_encoded = pd.get_dummies(batch_features, columns=['process_step'], drop_first=False)
             batch_encoded = batch_encoded.reindex(columns=feature_names, fill_value=0)
             
-            # Predict
             batch_probs = model.predict_proba(batch_encoded)[:, 1]
             batch_df['risk_score'] = (batch_probs * 100).round(1)
             batch_df['prediction'] = np.where(batch_probs >= (threshold/100), "DEFECTIVE", "GOOD")
             
-            # Sort by risk
             batch_df_sorted = batch_df.sort_values(by='risk_score', ascending=False)
             
             col1, col2 = st.columns([2, 1])
@@ -313,13 +415,13 @@ else:
                     step_summary = batch_df.groupby('process_step')['prediction'].apply(lambda x: (x == 'DEFECTIVE').mean() * 100).reset_index()
                     step_summary.columns = ['Process Step', 'Defect Rate (%)']
                     fig, ax = plt.subplots(figsize=(5, 4))
-                    ax.bar(step_summary['Process Step'], step_summary['Defect Rate (%)'], color=['#e74c3c', '#f39c12', '#3498db'])
-                    ax.set_ylabel('Defect Rate (%)')
+                    fig.patch.set_facecolor('#1A1D21')
+                    ax.set_facecolor('#1A1D21')
+                    ax.bar(step_summary['Process Step'], step_summary['Defect Rate (%)'], color=['#e74c3c', '#F2A93B', '#5B8FA8'])
+                    ax.set_ylabel('Defect Rate (%)', color='#E8E6E1')
+                    ax.tick_params(colors='#E8E6E1')
                     st.pyplot(fig)
-                else:
-                    st.info("Process step column not found in upload.")
         except Exception as e:
             st.error(f"Error processing file: {e}")
-            st.info("Please ensure your CSV has the correct columns: process_step, temperature, pressure, gas_flow, etch_rate, voltage, current")
     else:
         st.info("Upload a CSV file to begin batch analysis.")
