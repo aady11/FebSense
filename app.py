@@ -58,8 +58,11 @@ st.markdown("""
     .status-good { color: #5B8FA8; }
     .status-danger { color: #F2A93B; }
 
-    /* Chatbot styling */
     .stChatMessage { background-color: #23272B; border-radius: 8px; border: 1px solid #333; }
+    
+    /* Quick Action Buttons */
+    .quick-btn { background-color: #333; border: 1px solid #F2A93B; color: #F2A93B; padding: 8px 12px; border-radius: 4px; cursor: pointer; margin-right: 5px; margin-bottom: 5px; font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; }
+    .quick-btn:hover { background-color: #F2A93B; color: #1A1D21; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -182,28 +185,23 @@ def create_pdf_report(proc_step, risk, pred, top_feat, top_val, safe_min, safe_m
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
-    
     pdf.cell(200, 10, txt="FabSense AI Inspection Report", ln=True, align='C')
     pdf.cell(200, 10, txt="---------------------------", ln=True, align='C')
     pdf.ln(10)
-    
     pdf.cell(200, 10, txt=f"Process Step: {proc_step}", ln=True)
     pdf.cell(200, 10, txt=f"Risk Score: {risk:.1f} / 100", ln=True)
     pdf.cell(200, 10, txt=f"Prediction: {pred}", ln=True)
     pdf.ln(10)
-    
     pdf.set_font("Helvetica", size=10)
     pdf.cell(200, 10, txt="Primary Root Cause:", ln=True)
     if top_val > safe_max or top_val < safe_min:
         pdf.cell(200, 10, txt=f"- {top_feat} is out of spec (Reading: {top_val:.1f}, Safe: {safe_min}-{safe_max})", ln=True)
     else:
         pdf.cell(200, 10, txt="- All sensors within normal parameters.", ln=True)
-        
     pdf.ln(10)
     pdf.cell(200, 10, txt="Financial Impact (Per Wafer):", ln=True)
     pdf.cell(200, 10, txt="- Scrap Cost if Missed: $500", ln=True)
     pdf.cell(200, 10, txt="- Savings if Caught Early: $300", ln=True)
-    
     return bytes(pdf.output())
 
 # -------------------------------------------------------
@@ -411,11 +409,9 @@ if app_mode == "Single Wafer Check":
         st.divider()
         st.write("#### Export Data")
         col_pdf, col_csv = st.columns(2)
-        
         with col_pdf:
             pdf_bytes = create_pdf_report(process_step, risk_score, prediction, top_feature, top_val, safe_min, safe_max)
             st.download_button(label="Download AI Inspection Report (PDF)", data=pdf_bytes, file_name="fabsense_inspection_report.pdf", mime="application/pdf")
-            
         with col_csv:
             csv_data = input_df.copy()
             csv_data['risk_score'] = risk_score
@@ -426,44 +422,84 @@ if app_mode == "Single Wafer Check":
         st.header("AI Co-Pilot")
         st.caption("Ask questions about this wafer's diagnosis. Powered by rule-based logic.")
         
+        # Build a rich context string for the chatbot
+        out_of_spec = [f for f, s, v in active_features if v < normal_ranges[process_step][f][0] or v > normal_ranges[process_step][f][1]]
+        out_of_spec_str = ", ".join(out_of_spec) if out_of_spec else "None"
+        
         # Initialize chat history
         if "messages" not in st.session_state:
             st.session_state.messages = []
-            st.session_state.messages.append({"role": "assistant", "content": f"Wafer analysis complete. Risk is {risk_score:.1f}/100. Ask me anything about the {process_step} step diagnosis."})
+            st.session_state.messages.append({"role": "assistant", "content": f"Wafer analysis complete. Risk is **{risk_score:.1f}/100**. Ask me anything about the {process_step} step diagnosis."})
 
         # Display chat messages
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
+        # Quick Action Buttons
+        st.write("#### Quick Actions")
+        col_q1, col_q2, col_q3, col_q4 = st.columns(4)
+        with col_q1:
+            if st.button("Why is it risky?"):
+                st.session_state.messages.append({"role": "user", "content": "Why is this wafer risky?"})
+        with col_q2:
+            if st.button("What to inspect?"):
+                st.session_state.messages.append({"role": "user", "content": "What should the engineer inspect first?"})
+        with col_q3:
+            if st.button("Financial impact?"):
+                st.session_state.messages.append({"role": "user", "content": "What is the financial impact of this wafer?"})
+        with col_q4:
+            if st.button("List all issues"):
+                st.session_state.messages.append({"role": "user", "content": "List all sensors that are out of spec."})
+
         # React to user input
         if prompt := st.chat_input("Ask about this wafer..."):
-            st.chat_message("user").markdown(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
 
-            # Rule-Based Chatbot Logic
-            prompt_lower = prompt.lower()
+        # Generate response based on the last user message
+        if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+            prompt = st.session_state.messages[-1]["content"].lower()
             response = ""
             
-            if "why" in prompt_lower and "risky" in prompt_lower:
+            if "why" in prompt and ("risky" in prompt or "risk" in prompt or "defective" in prompt):
                 if top_val > safe_max or top_val < safe_min:
-                    response = f"This wafer is risky primarily because **{top_feature}** is out of its safe operating range. It is currently reading {top_val:.1f}, which exceeds the safe limit of {safe_max}."
+                    response = f"This wafer is risky primarily because **{top_feature}** is out of its safe operating range. It is currently reading {top_val:.1f}, which exceeds the safe limit of {safe_max}. This single sensor is driving the majority of the defect probability."
                 else:
-                    response = "The risk is not driven by a single sensor excursion. It's likely due to subtle multi-sensor interactions that the model has detected."
-            elif "which sensor" in prompt_lower or "cause" in prompt_lower:
-                response = f"The primary contributing sensor is **{top_feature}** with a SHAP impact of {active_features[0][1]:+.4f}."
-            elif "inspect" in prompt_lower or "action" in prompt_lower:
-                if top_val > safe_max or top_val < safe_min:
-                    response = f"You should inspect the **{top_feature}** controller and the associated hardware in the {process_step} chamber immediately."
-                else:
-                    response = "No immediate inspection is required. All sensors are within normal parameters."
-            elif "what if" in prompt_lower and "normal" in prompt_lower:
-                response = f"If {top_feature} returned to normal, the risk score would likely drop significantly, as {top_feature} is currently the largest positive contributor to the risk."
-            else:
-                response = f"I can tell you why this wafer is risky, which sensor caused it, or what to inspect. The current risk is {risk_score:.1f}/100."
+                    response = "The risk is not driven by a single sensor excursion. It's likely due to subtle multi-sensor interactions that the model has detected. The overall risk is still relatively low."
 
-            st.chat_message("assistant").markdown(response)
+            elif "inspect" in prompt or "action" in prompt or "what should" in prompt or "do" in prompt:
+                if top_val > safe_max or top_val < safe_min:
+                    response = f"You should inspect the **{top_feature}** controller and the associated hardware in the {process_step} chamber immediately. Preventive calibration of this sensor is also recommended to avoid future excursions."
+                else:
+                    response = "No immediate inspection is required. All sensors are within normal parameters. Proceed with standard monitoring."
+
+            elif "financial" in prompt or "cost" in prompt or "money" in prompt or "dollar" in prompt or "rupee" in prompt:
+                response = f"If this wafer is missed and scrapped at end-of-line, the cost is **$500 (₹41,500)**. If we catch it now and stop processing, we save **$300 (₹24,900)**. If this is a false alarm, the inspection cost is only **$50 (₹4,150)**."
+
+            elif "sensor" in prompt and ("list" in prompt or "all" in prompt or "issue" in prompt or "out of spec" in prompt or "problem" in prompt):
+                if out_of_spec:
+                    response = f"The sensors currently out of their safe operating range are: **{out_of_spec_str}**. All other active sensors for this process step are reading within normal parameters."
+                else:
+                    response = "No sensors are currently out of spec. All readings are within their safe operating bands."
+
+            elif "confidence" in prompt or "sure" in prompt or "probability" in prompt:
+                response = f"The model is predicting a defect probability of **{risk_score:.1f}%**. The action threshold is set at {threshold}%. Therefore, the prediction is **{prediction}**."
+
+            elif "what if" in prompt and "normal" in prompt:
+                response = f"If {top_feature} returned to its normal range, the risk score would likely drop significantly, as {top_feature} is currently the largest positive contributor to the risk score."
+
+            else:
+                response = f"I can tell you why this wafer is risky, which sensor caused it, what to inspect, or the financial impact. The current risk is {risk_score:.1f}/100. What specifically would you like to know?"
+
             st.session_state.messages.append({"role": "assistant", "content": response})
+
+        # Rerun to display the new messages immediately if a button was clicked
+        if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "assistant":
+            if "last_displayed_count" not in st.session_state or st.session_state.last_displayed_count != len(st.session_state.messages):
+                st.session_state.last_displayed_count = len(st.session_state.messages)
+                # The messages are already appended, they will display on the next run loop 
+                # or we can force a rerun if needed, but Streamlit handles chat sequences well.
+                pass
 
 # -------------------------------------------------------
 # BATCH MODE LOGIC
