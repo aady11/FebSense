@@ -242,31 +242,68 @@ if app_mode == "Single Wafer Check":
     tab1, tab2, tab3 = st.tabs(["Live Verdict", "Diagnostics", "Impact Report"])
 
     with tab1:
+        st.header("Overall Risk Verdict")
+        
+        col1, col2 = st.columns([1.5, 1])
+        
+        with col1:
+            # THE PLOTLY RISK GAUGE (Back by popular demand!)
+            if risk_score >= 50: gauge_color = "#e74c3c"
+            elif risk_score >= threshold: gauge_color = "#F2A93B"
+            else: gauge_color = "#5B8FA8"
+            
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = risk_score,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': f"Risk Score: {risk_score:.1f}/100", 'font': {'size': 20, 'color': '#E8E6E1'}},
+                gauge = {
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "#E8E6E1"},
+                    'bar': {'color': gauge_color, 'thickness': 0.4},
+                    'bgcolor': "#1A1D21",
+                    'borderwidth': 2,
+                    'bordercolor': "#333",
+                    'steps': [
+                        {'range': [0, 30], 'color': 'rgba(91, 143, 168, 0.2)'},
+                        {'range': [30, 60], 'color': 'rgba(242, 169, 59, 0.2)'},
+                        {'range': [60, 100], 'color': 'rgba(231, 76, 60, 0.2)'}],
+                    'threshold': {
+                        'line': {'color': "#E8E6E1", 'width': 4},
+                        'thickness': 0.75,
+                        'value': threshold}
+                }
+            ))
+            fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=60, b=20), paper_bgcolor="#1A1D21")
+            st.plotly_chart(fig_gauge, use_container_width=True)
+            st.caption(f"White line = Action Threshold: {threshold}/100")
+            
+        with col2:
+            st.markdown("#### Summary")
+            st.metric("Process Step", process_step)
+            st.metric("Prediction", prediction)
+            st.metric("Risk Level", risk_label)
+
+        st.divider()
+        
+        # SCADA SENSOR GAUGE STACK (Below the main gauge)
         st.header("SCADA Sensor Gauge Stack")
         st.caption("Visual representation of sensor positions within their safe operating bands.")
         
-        # SCADA GAUGE STACK LOGIC
         for feature, shap_val, val in active_features:
             safe_min, safe_max = normal_ranges[process_step][feature]
-            slider_min = input_df[feature].min() if feature in input_df.columns else 0
-            slider_max = input_df[feature].max() if feature in input_df.columns else 100
             
-            # Get slider bounds from the UI (hardcoded mapping for simplicity)
             bounds_map = {
                 'temperature': (20.0, 500.0), 'pressure': (0.9, 6.0), 'gas_flow': (100.0, 220.0),
                 'etch_rate': (500.0, 600.0), 'voltage': (40.0, 350.0), 'current': (1.5, 7.0)
             }
             track_min, track_max = bounds_map.get(feature, (0, 100))
             
-            # Calculate percentages for CSS
             track_range = track_max - track_min
             if track_range == 0: continue
             
             safe_start_pct = ((safe_min - track_min) / track_range) * 100
             safe_width_pct = ((safe_max - safe_min) / track_range) * 100
             marker_pct = ((val - track_min) / track_range) * 100
-            
-            # Clamp marker to 0-100%
             marker_pct = max(0, min(100, marker_pct))
             
             is_normal = safe_min <= val <= safe_max
@@ -285,15 +322,10 @@ if app_mode == "Single Wafer Check":
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            
-        st.divider()
-        st.metric("Overall Risk Score", f"{risk_score:.1f} / 100")
-        st.metric("Prediction", prediction)
 
     with tab2:
         st.header("Sensor Health & Diagnostics")
         
-        # SENSOR HEALTH CARDS
         cols = st.columns(3)
         col_idx = 0
         for feature, shap_val, val in active_features:
