@@ -1,4 +1,3 @@
-
 streamlit
 pandas
 numpy
@@ -6,3 +5,4 @@ scikit-learn
 shap
 matplotlib
 plotly
+fpdf2
